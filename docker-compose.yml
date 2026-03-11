@@ -1,0 +1,27 @@
+services:
+  eldes-api:
+    image: lobanovsky/eldes-api:${TAG}
+    container_name: eldes-api
+    restart: always
+    environment:
+      TZ: Europe/Moscow
+      ELDES_USERNAME: ${ELDES_USERNAME}
+      ELDES_PASSWORD: ${ELDES_PASSWORD}
+      HOUSE_HOST: ${HOUSE_HOST}
+      HOUSE_USERNAME: ${HOUSE_USERNAME}
+      HOUSE_PASSWORD: ${HOUSE_PASSWORD}
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8070:8080"
+    env_file:
+      - .env
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gate-backend.rule=Host(`gate-backend.housekpr.ru`) && PathPrefix(`/api`)"
+    networks:
+      - housekpr-network
+
+networks:
+  housekpr-network:
+    external: true
