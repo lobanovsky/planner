@@ -1,48 +1,489 @@
-# planner
+# Planner — бэкенд для расписания тренера
 
-This project was created using the [Ktor Project Generator](https://start.ktor.io).
+REST API для управления расписанием тренера по фигурному катанию. Ученики видят занятые и свободные окошки, не видя имён друг друга. Система поддерживает нескольких тренеров (мульти-тенантность).
 
-Here are some useful links to get you started:
+Telegram-бот и веб-интерфейс — клиенты этого API.
 
-- [Ktor Documentation](https://ktor.io/docs/home.html)
-- [Ktor GitHub page](https://github.com/ktorio/ktor)
-- The [Ktor Slack chat](https://app.slack.com/client/T09229ZC6/C0A974TJ9). You'll need
-  to [request an invite](https://surveys.jetbrains.com/s3/kotlin-slack-sign-up) to join.
+**Стек:** Kotlin, Ktor 3.4.0, Exposed ORM, PostgreSQL
 
-## Features
+---
 
-Here's a list of features included in this project:
+## Запуск
 
-| Name                                                                   | Description                                                                        |
-|------------------------------------------------------------------------|------------------------------------------------------------------------------------|
-| [Routing](https://start.ktor.io/p/routing)                             | Provides a structured routing DSL                                                  |
-| [Authentication](https://start.ktor.io/p/auth)                         | Provides extension point for handling the Authorization header                     |
-| [Authentication Basic](https://start.ktor.io/p/auth-basic)             | Handles 'Basic' username / password authentication scheme                          |
-| [Authentication JWT](https://start.ktor.io/p/auth-jwt)                 | Handles JSON Web Token (JWT) bearer authentication scheme                          |
-| [Call Logging](https://start.ktor.io/p/call-logging)                   | Logs client requests                                                               |
-| [Content Negotiation](https://start.ktor.io/p/content-negotiation)     | Provides automatic content conversion according to Content-Type and Accept headers |
-| [kotlinx.serialization](https://start.ktor.io/p/kotlinx-serialization) | Handles JSON serialization using kotlinx.serialization library                     |
-| [Exposed](https://start.ktor.io/p/exposed)                             | Adds Exposed database to your application                                          |
-| [Postgres](https://start.ktor.io/p/postgres)                           | Adds Postgres database to your application                                         |
+```bash
+# Запуск сервера
+./gradlew run
 
-## Building & Running
+# Тесты
+./gradlew test
 
-To build or run the project, use one of the following tasks:
-
-| Task                                    | Description                                                          |
-|-----------------------------------------|----------------------------------------------------------------------|
-| `./gradlew test`                        | Run the tests                                                        |
-| `./gradlew build`                       | Build everything                                                     |
-| `./gradlew buildFatJar`                 | Build an executable JAR of the server with all dependencies included |
-| `./gradlew buildImage`                  | Build the docker image to use with the fat JAR                       |
-| `./gradlew publishImageToLocalRegistry` | Publish the docker image locally                                     |
-| `./gradlew run`                         | Run the server                                                       |
-| `./gradlew runDocker`                   | Run using the local docker image                                     |
-
-If the server starts successfully, you'll see the following output:
-
-```
-2024-12-04 14:32:45.584 [main] INFO  Application - Application started in 0.303 seconds.
-2024-12-04 14:32:45.682 [main] INFO  Application - Responding at http://0.0.0.0:8080
+# Сборка fat JAR
+./gradlew buildFatJar
 ```
 
+Сервер запускается на `http://localhost:8080`.
+
+Локальная БД: `jdbc:postgresql://localhost:5439/planner`, логин/пароль `planner/planner` (настройки в `src/main/resources/application.yaml`).
+
+---
+
+## Схема базы данных
+
+### `trainers` — тренеры
+
+Аккаунты тренеров. Каждый тренер работает в своём изолированном пространстве: его ученики, катки и расписания недоступны другим тренерам.
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | UUID PK | Уникальный идентификатор |
+| `name` | varchar(100) | Имя тренера |
+| `email` | varchar(200) UNIQUE | Email для входа |
+| `password_hash` | varchar(200) | BCrypt-хэш пароля |
+| `created_at` | timestamp | Дата регистрации |
+
+---
+
+### `venues` — катки / площадки
+
+Места, где тренер проводит тренировки. Тренер сам заводит свои катки с произвольными названиями («Луч», «Заречье», «Снежком»). Один слот расписания привязан к одному катку.
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | UUID PK | Уникальный идентификатор |
+| `trainer_id` | UUID FK → trainers | Владелец площадки |
+| `name` | varchar(100) | Название («Луч», «Заречье») |
+| `description` | text | Необязательное описание |
+
+---
+
+### `students` — ученики
+
+Ученики тренера. Каждому выдаётся уникальный токен для аутентификации в боте или веб-интерфейсе — без пароля и логина. Тренер может сбросить токен ученика при необходимости.
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | UUID PK | Уникальный идентификатор |
+| `trainer_id` | UUID FK → trainers | Тренер, к которому привязан ученик |
+| `name` | varchar(100) | Имя ученика |
+| `telegram_id` | bigint | ID пользователя в Telegram (для бота) |
+| `token` | varchar(64) UNIQUE | Опaque-токен для аутентификации (Bearer) |
+| `created_at` | timestamp | Дата создания |
+
+---
+
+### `week_templates` — недельные расписания
+
+Одно расписание = одна неделя. Тренер сначала создаёт расписание в статусе `DRAFT`, добавляет туда слоты, затем публикует (`PUBLISHED`). Только опубликованное расписание видят ученики.
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | UUID PK | Уникальный идентификатор |
+| `trainer_id` | UUID FK → trainers | Владелец расписания |
+| `week_start` | date | Дата понедельника данной недели |
+| `status` | varchar(20) | `DRAFT` или `PUBLISHED` |
+| `created_at` | timestamp | Дата создания |
+
+---
+
+### `slots` — окошки (временны́е слоты)
+
+Конкретный временной слот в расписании: дата, время, каток, тип (индивидуальная или групповая тренировка), вместимость. Счётчик `booking_count` обновляется атомарно при бронировании — это защищает от одновременной записи двух учеников на одно место.
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | UUID PK | Уникальный идентификатор |
+| `week_template_id` | UUID FK → week_templates | К какому расписанию относится |
+| `venue_id` | UUID FK → venues | На каком катке |
+| `slot_date` | date | Дата тренировки |
+| `start_time` | time | Время начала |
+| `duration_minutes` | int | Длительность в минутах (по умолчанию 45) |
+| `slot_type` | varchar(20) | `INDIVIDUAL` или `GROUP` |
+| `capacity` | int | Количество мест (1 для индивидуальной) |
+| `booking_count` | int | Текущее число бронирований |
+
+---
+
+### `slot_components` — компоненты групповых тренировок
+
+Групповая тренировка может состоять из нескольких частей с разным расписанием и разными площадками. Например: «13:30 зал, 14:30 лёд» — это одна группа, но два компонента. Ученик записывается на весь слот целиком (на родительский `slot`), а компоненты показываются ему как детали.
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | UUID PK | Уникальный идентификатор |
+| `slot_id` | UUID FK → slots | Родительский слот (GROUP) |
+| `venue_id` | UUID FK → venues | Площадка для данного компонента |
+| `start_time` | time | Время начала компонента |
+| `duration_minutes` | int | Длительность в минутах |
+| `sequence` | int | Порядок отображения (1, 2, …) |
+
+---
+
+### `bookings` — записи учеников
+
+Факт записи ученика на конкретный слот. При отмене статус меняется на `CANCELLED` (запись не удаляется), а `booking_count` в `slots` уменьшается. Частичный уникальный индекс `(slot_id, student_id) WHERE status = 'CONFIRMED'` не позволяет одному ученику дважды записаться на одно место.
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| `id` | UUID PK | Уникальный идентификатор |
+| `slot_id` | UUID FK → slots | На какой слот |
+| `student_id` | UUID FK → students | Кто записался |
+| `status` | varchar(20) | `CONFIRMED` или `CANCELLED` |
+| `created_at` | timestamp | Время записи |
+| `cancelled_at` | timestamp | Время отмены (если отменена) |
+
+---
+
+## API
+
+Базовый путь: `/api`
+
+### Аутентификация
+
+Тренер аутентифицируется через `Authorization: Bearer <JWT>`.
+Ученик аутентифицируется через `Authorization: Bearer <student_token>` (токен выдаётся тренером).
+
+---
+
+### Auth — регистрация и вход тренера
+
+#### `POST /api/auth/trainer/register`
+Регистрация нового тренера.
+
+**Тело запроса:**
+```json
+{ "name": "Иван", "email": "ivan@example.com", "password": "secret123" }
+```
+
+**Ответ `201`:**
+```json
+{
+  "token": "<JWT>",
+  "trainer": { "id": "...", "name": "Иван", "email": "ivan@example.com" }
+}
+```
+
+---
+
+#### `POST /api/auth/trainer/login`
+Вход существующего тренера.
+
+**Тело запроса:**
+```json
+{ "email": "ivan@example.com", "password": "secret123" }
+```
+
+**Ответ `200`:** аналогичен регистрации.
+
+---
+
+### Trainer — профиль тренера
+
+#### `GET /api/trainer/me`
+Получить профиль текущего тренера.
+
+**Ответ `200`:**
+```json
+{ "id": "...", "name": "Иван", "email": "ivan@example.com" }
+```
+
+---
+
+#### `PUT /api/trainer/me`
+Обновить профиль. Все поля необязательны.
+
+**Тело запроса:**
+```json
+{ "name": "Иван Петров", "email": "new@example.com", "password": "newpass" }
+```
+
+**Ответ `200`:** обновлённый профиль.
+
+---
+
+### Venues — катки и площадки
+
+#### `GET /api/venues`
+Список всех площадок тренера.
+
+**Ответ `200`:**
+```json
+[{ "id": "...", "trainerId": "...", "name": "Луч", "description": null }]
+```
+
+---
+
+#### `POST /api/venues`
+Создать новую площадку.
+
+**Тело запроса:**
+```json
+{ "name": "Луч", "description": "Каток Луч, ул. Ленина 5" }
+```
+
+**Ответ `201`:** созданная площадка.
+
+---
+
+#### `PUT /api/venues/{id}`
+Обновить площадку. Все поля необязательны.
+
+**Ответ `200`:** обновлённая площадка.
+
+---
+
+#### `DELETE /api/venues/{id}`
+Удалить площадку.
+
+**Ответ `204`.`**
+
+---
+
+### Students — ученики
+
+#### `GET /api/students`
+Список всех учеников тренера (с токенами).
+
+---
+
+#### `POST /api/students`
+Добавить ученика. Тренер передаёт ученику его `token` — через бот или вручную.
+
+**Тело запроса:**
+```json
+{ "name": "Маша Иванова", "telegramId": 123456789 }
+```
+
+**Ответ `201`:**
+```json
+{
+  "id": "...", "trainerId": "...", "name": "Маша Иванова",
+  "telegramId": 123456789, "token": "a3f9c2..."
+}
+```
+
+---
+
+#### `GET /api/students/{id}`
+Получить конкретного ученика.
+
+---
+
+#### `PUT /api/students/{id}`
+Обновить имя или Telegram ID ученика.
+
+---
+
+#### `DELETE /api/students/{id}`
+Удалить ученика.
+
+**Ответ `204`.**
+
+---
+
+#### `POST /api/students/{id}/token/reset`
+Сбросить токен ученика (старый перестаёт работать).
+
+**Ответ `200`:**
+```json
+{ "token": "новый_токен_64_символа" }
+```
+
+---
+
+### Schedules — расписание (тренер)
+
+#### `POST /api/schedules`
+Создать новое расписание на неделю в статусе `DRAFT`. `weekStart` — дата понедельника.
+
+**Тело запроса:**
+```json
+{ "weekStart": "2026-03-16" }
+```
+
+**Ответ `201`:**
+```json
+{ "id": "...", "trainerId": "...", "weekStart": "2026-03-16", "status": "DRAFT" }
+```
+
+---
+
+#### `GET /api/schedules`
+Список расписаний тренера. Опциональный фильтр: `?weekStart=2026-03-16`.
+
+---
+
+#### `GET /api/schedules/{templateId}`
+Расписание со всеми слотами.
+
+**Ответ `200`:**
+```json
+{
+  "template": { "id": "...", "weekStart": "2026-03-16", "status": "DRAFT" },
+  "slots": [ ... ]
+}
+```
+
+---
+
+#### `POST /api/schedules/{templateId}/publish`
+Опубликовать расписание (`DRAFT` → `PUBLISHED`). После публикации ученики видят расписание. Добавлять или удалять слоты в опубликованном расписании нельзя.
+
+**Ответ `200`:** расписание со статусом `PUBLISHED`.
+
+---
+
+#### `DELETE /api/schedules/{templateId}`
+Удалить расписание. Работает только для `DRAFT`.
+
+**Ответ `204`.**
+
+---
+
+#### `POST /api/schedules/{templateId}/slots`
+Добавить слот в расписание (только пока `DRAFT`).
+
+**Тело запроса (индивидуальная тренировка):**
+```json
+{
+  "venueId": "uuid-катка",
+  "slotDate": "2026-03-17",
+  "startTime": "11:15",
+  "durationMinutes": 45,
+  "slotType": "INDIVIDUAL",
+  "capacity": 1
+}
+```
+
+**Тело запроса (групповая тренировка с компонентами):**
+```json
+{
+  "venueId": "uuid-катка",
+  "slotDate": "2026-03-17",
+  "startTime": "13:30",
+  "durationMinutes": 120,
+  "slotType": "GROUP",
+  "capacity": 10,
+  "components": [
+    { "venueId": "uuid-зала", "startTime": "13:30", "durationMinutes": 60, "sequence": 1 },
+    { "venueId": "uuid-льда", "startTime": "14:30", "durationMinutes": 60, "sequence": 2 }
+  ]
+}
+```
+
+**Ответ `201`:** созданный слот со всеми полями.
+
+---
+
+#### `DELETE /api/schedules/{templateId}/slots/{slotId}`
+Удалить слот. Нельзя удалить слот, на который уже есть бронирование.
+
+**Ответ `204`.**
+
+---
+
+### Schedules — расписание (ученик)
+
+Эти эндпоинты используют токен ученика. Ученик видит только опубликованные расписания своего тренера. Имена других учеников не раскрываются — только статус занятости.
+
+#### `GET /api/schedules/current`
+Расписание на текущую неделю (неделя, содержащая сегодняшнюю дату).
+
+**Ответ `200`:**
+```json
+{
+  "weekStart": "2026-03-16",
+  "templateId": "...",
+  "slots": [
+    {
+      "id": "...",
+      "venue": { "name": "Луч", ... },
+      "slotDate": "2026-03-17",
+      "startTime": "11:15",
+      "durationMinutes": 45,
+      "slotType": "INDIVIDUAL",
+      "capacity": 1,
+      "availableCount": 0,
+      "status": "OCCUPIED",
+      "components": []
+    },
+    {
+      "id": "...",
+      "slotDate": "2026-03-17",
+      "startTime": "14:45",
+      "status": "BOOKED_BY_ME",
+      ...
+    }
+  ]
+}
+```
+
+Значения `status`:
+- `FREE` — свободно, можно записаться
+- `OCCUPIED` — занято другим учеником
+- `BOOKED_BY_ME` — вы уже записаны на это время
+
+---
+
+#### `GET /api/schedules/week/{weekStart}`
+Расписание на конкретную неделю. `weekStart` — дата понедельника в формате `YYYY-MM-DD`.
+
+**Ответ `200`:** аналогичен `/schedules/current`.
+
+---
+
+### Bookings — запись и отмена
+
+#### `POST /api/bookings`
+Записаться на слот. Если слот уже занят — ошибка `409 SLOT_FULL`. Если ученик уже записан — `409 ALREADY_BOOKED`.
+
+**Тело запроса:**
+```json
+{ "slotId": "uuid-слота" }
+```
+
+**Ответ `201`:**
+```json
+{
+  "id": "...",
+  "slotId": "...",
+  "venue": { "name": "Луч", ... },
+  "slotDate": "2026-03-17",
+  "startTime": "11:15",
+  "durationMinutes": 45,
+  "status": "CONFIRMED",
+  "createdAt": "2026-03-12T10:00:00"
+}
+```
+
+---
+
+#### `GET /api/bookings`
+Список всех активных записей ученика (статус `CONFIRMED`).
+
+**Ответ `200`:** массив объектов как в `POST /api/bookings`.
+
+---
+
+#### `DELETE /api/bookings/{id}`
+Отменить запись. `booking_count` слота уменьшается, место освобождается для других.
+
+**Ответ `204`.**
+
+---
+
+## Коды ошибок
+
+Все ошибки возвращаются в формате:
+```json
+{ "code": "KOD_OSHIBKI", "message": "Описание" }
+```
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `NOT_FOUND` | 404 | Ресурс не найден или принадлежит другому тренеру |
+| `SLOT_FULL` | 409 | Нет свободных мест в слоте |
+| `ALREADY_BOOKED` | 409 | Ученик уже записан на этот слот |
+| `CONFLICT` | 409 | Дублирование (e.g. email уже занят, расписание уже опубликовано) |
+| `BAD_REQUEST` | 400 | Неверный формат данных |
+| `UNAUTHORIZED` | 401 | Неверные учётные данные |
+| `INTERNAL_ERROR` | 500 | Внутренняя ошибка сервера |

@@ -9,7 +9,7 @@ jwt:
   domain: "https://planner.example.com"
   audience: "planner-trainer"
   realm: "Planner API"
-  secret: "change-me-in-production-must-be-at-least-32-chars"
+  secret: "test-secret-must-be-at-least-32-chars-long"
 
 postgres:
   url: "jdbc:postgresql://localhost:5439/planner"
