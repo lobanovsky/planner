@@ -7,7 +7,7 @@ RUN gradle clean build -x test
 
 FROM eclipse-temurin:21-jdk-jammy
 WORKDIR /app
-COPY --from=builder /app/build/libs/eldes-api-all.jar app.jar
+COPY --from=builder /app/build/libs/planner.jar app.jar
 
 EXPOSE 8080
 ENV JAVA_OPTS=""
