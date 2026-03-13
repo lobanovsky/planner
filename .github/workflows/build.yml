@@ -65,18 +65,18 @@ jobs:
       - name: copy files to host
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.HOST_IP }}
-          username: ${{ secrets.HOST_USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
+          host: ${{ secrets.MR17_HOST_IP }}
+          username: ${{ secrets.MR17_HOST_USERNAME }}
+          key: ${{ secrets.MR17_HOST_KEY }}
           source: ".env, docker-compose.yml"
           target: ${{ secrets.HOST_PROJECT_PATH }}
 
       - name: docker pull && up
         uses: appleboy/ssh-action@v1.2.2
         with:
-          host: ${{ secrets.HOST_IP }}
-          username: ${{ secrets.HOST_USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
+          host: ${{ secrets.MR17_HOST_IP }}
+          username: ${{ secrets.MR17_HOST_USERNAME }}
+          key: ${{ secrets.MR17_HOST_KEY }}
           script: |
             echo ${{ secrets.DOCKER_TOKEN }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
             cd ${{ secrets.HOST_PROJECT_PATH }}
