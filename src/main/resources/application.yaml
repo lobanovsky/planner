@@ -6,12 +6,12 @@ ktor:
     port: 8080
 
 jwt:
-  domain: "https://planner.example.com"
-  audience: "planner-trainer"
-  realm: "Planner API"
-  secret: "change-me-in-production-must-be-at-least-32-chars"
+  domain: ${JWT_DOMAIN:"https://planner.example.com"}
+  audience: ${JWT_AUDIENCE:"planner-trainer"}
+  realm: ${JWT_REALM:"Planner API"}
+  secret: ${JWT_SECRET:"change-me-in-production-must-be-at-least-32-chars"}
 
 postgres:
-  url: "jdbc:postgresql://localhost:5439/planner"
-  user: planner
-  password: planner
+  url: ${DB_URL:"jdbc:postgresql://localhost:5439/planner"}
+  user: ${DB_USER:"planner"}
+  password: ${DB_PASSWORD:"planner"}
