@@ -34,6 +34,7 @@ dependencies {
     implementation("com.h2database:h2:$h2_version")
     implementation("at.favre.lib:bcrypt:0.9.0")
     implementation("io.ktor:ktor-server-status-pages")
+    implementation("io.ktor:ktor-server-cors")
     implementation("org.postgresql:postgresql:$postgres_version")
     implementation("io.ktor:ktor-server-netty")
     implementation("ch.qos.logback:logback-classic:$logback_version")

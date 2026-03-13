@@ -2,6 +2,7 @@ package ru.planner.routes
 
 import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -19,6 +20,14 @@ fun Application.configureRouting() {
     val studentService = StudentService(database)
     val scheduleService = ScheduleService(database)
     val bookingService = BookingService(database)
+
+    install(CORS) {
+        anyHost()
+        allowHeader(HttpHeaders.ContentType)
+        allowHeader(HttpHeaders.Authorization)
+        allowMethod(HttpMethod.Put)
+        allowMethod(HttpMethod.Delete)
+    }
 
     install(StatusPages) {
         exception<NotFoundException> { call, e ->

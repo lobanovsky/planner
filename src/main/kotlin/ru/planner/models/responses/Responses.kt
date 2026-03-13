@@ -74,6 +74,12 @@ data class PublicSlotResponse(
 )
 
 @Serializable
+data class ScheduleDetailResponse(
+    val template: WeekTemplateResponse,
+    val slots: List<SlotResponse>
+)
+
+@Serializable
 data class WeekScheduleResponse(
     val weekStart: String,
     val templateId: String,

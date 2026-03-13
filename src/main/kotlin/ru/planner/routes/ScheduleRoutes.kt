@@ -8,6 +8,7 @@ import io.ktor.server.routing.*
 import ru.planner.domain.ScheduleService
 import ru.planner.models.requests.CreateSlotRequest
 import ru.planner.models.requests.CreateWeekTemplateRequest
+import ru.planner.models.responses.ScheduleDetailResponse
 import ru.planner.security.StudentPrincipal
 import java.util.*
 
@@ -31,7 +32,7 @@ fun Route.scheduleRoutes(scheduleService: ScheduleService) {
                 val templateId = UUID.fromString(call.parameters["templateId"]!!)
                 val template = scheduleService.getTemplate(templateId, trainerId)
                 val slots = scheduleService.getSlotsForTemplate(templateId, trainerId)
-                call.respond(mapOf("template" to template, "slots" to slots))
+                call.respond(ScheduleDetailResponse(template, slots))
             }
             delete("/{templateId}") {
                 val trainerId = call.trainerId()
