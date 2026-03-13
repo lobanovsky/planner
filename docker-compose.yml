@@ -1,7 +1,7 @@
 services:
   planner:
     image: lobanovsky/planner:${TAG}
-    container_name: eldes
+    container_name: planner
     restart: always
     environment:
       TZ: Europe/Moscow
