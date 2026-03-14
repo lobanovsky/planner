@@ -329,6 +329,14 @@ class ScheduleService(private val database: Database) {
         }
     }
 
+    // ─── Bot integration ─────────────────────────────────────────────────────
+
+    suspend fun getStudentTelegramIds(trainerId: UUID): List<Long> = dbQuery(database) {
+        Students.selectAll()
+            .where { (Students.trainerId eq trainerId) and Students.telegramId.isNotNull() }
+            .mapNotNull { it[Students.telegramId] }
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private fun parseDate(str: String): LocalDate = try {

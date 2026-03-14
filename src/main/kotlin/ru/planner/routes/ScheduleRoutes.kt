@@ -1,10 +1,12 @@
 package ru.planner.routes
 
 import io.ktor.http.*
+import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.runBlocking
 import ru.planner.domain.ScheduleService
 import ru.planner.models.requests.CreateSlotRequest
 import ru.planner.models.requests.CreateWeekTemplateRequest
@@ -43,7 +45,30 @@ fun Route.scheduleRoutes(scheduleService: ScheduleService) {
             post("/{templateId}/publish") {
                 val trainerId = call.trainerId()
                 val templateId = UUID.fromString(call.parameters["templateId"]!!)
-                call.respond(scheduleService.publishTemplate(templateId, trainerId))
+                val result = scheduleService.publishTemplate(templateId, trainerId)
+
+                val botUrl = System.getenv("BOT_WEBHOOK_URL")
+                if (!botUrl.isNullOrBlank()) {
+                    val log = application.log
+                    Thread {
+                        try {
+                            val ids = runBlocking { scheduleService.getStudentTelegramIds(trainerId) }
+                            val payload = """{"weekStart":"${result.weekStart}","studentTelegramIds":$ids}"""
+                            val req = java.net.http.HttpRequest.newBuilder()
+                                .uri(java.net.URI.create("$botUrl/webhook/schedule-published"))
+                                .header("Content-Type", "application/json")
+                                .header("X-Bot-Secret", System.getenv("BOT_WEBHOOK_SECRET") ?: "")
+                                .POST(java.net.http.HttpRequest.BodyPublishers.ofString(payload))
+                                .build()
+                            java.net.http.HttpClient.newHttpClient()
+                                .send(req, java.net.http.HttpResponse.BodyHandlers.discarding())
+                        } catch (e: Exception) {
+                            log.warn("Failed to notify bot after publish", e)
+                        }
+                    }.start()
+                }
+
+                call.respond(result)
             }
             post("/{templateId}/slots") {
                 val trainerId = call.trainerId()
