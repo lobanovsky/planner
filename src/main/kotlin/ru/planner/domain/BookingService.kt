@@ -1,14 +1,13 @@
 package ru.planner.domain
 
 import org.jetbrains.exposed.sql.*
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
 import ru.planner.db.schema.*
 import ru.planner.models.AlreadyBookedException
 import ru.planner.models.BadRequestException
 import ru.planner.models.NotFoundException
 import ru.planner.models.SlotFullException
 import ru.planner.models.responses.BookingResponse
+import ru.planner.models.responses.SlotBookingEntryResponse
 import ru.planner.models.responses.VenueResponse
 import java.time.LocalDateTime
 import java.util.*
@@ -16,7 +15,9 @@ import java.util.*
 class BookingService(private val database: Database) {
 
     suspend fun book(studentId: UUID, trainerId: UUID, slotIdStr: String): BookingResponse {
-        val slotId = try { UUID.fromString(slotIdStr) } catch (e: Exception) {
+        val slotId = try {
+            UUID.fromString(slotIdStr)
+        } catch (_: Exception) {
             throw BadRequestException("Invalid slotId")
         }
 
@@ -27,15 +28,15 @@ class BookingService(private val database: Database) {
                 .selectAll()
                 .where {
                     (Slots.id eq slotId) and
-                    (WeekTemplates.trainerId eq trainerId) and
-                    (WeekTemplates.status eq TemplateStatus.PUBLISHED)
+                            (WeekTemplates.trainerId eq trainerId) and
+                            (WeekTemplates.status eq TemplateStatus.PUBLISHED)
                 }
                 .singleOrNull() ?: throw NotFoundException("Slot not found in published schedule")
 
             val alreadyBooked = Bookings.selectAll().where {
                 (Bookings.slotId eq slotId) and
-                (Bookings.studentId eq studentId) and
-                (Bookings.status eq BookingStatus.CONFIRMED)
+                        (Bookings.studentId eq studentId) and
+                        (Bookings.status eq BookingStatus.CONFIRMED)
             }.count() > 0
             if (alreadyBooked) throw AlreadyBookedException()
 
@@ -83,8 +84,8 @@ class BookingService(private val database: Database) {
             .selectAll()
             .where {
                 (Bookings.studentId eq studentId) and
-                (Bookings.status eq BookingStatus.CONFIRMED) and
-                (WeekTemplates.trainerId eq trainerId)
+                        (Bookings.status eq BookingStatus.CONFIRMED) and
+                        (WeekTemplates.trainerId eq trainerId)
             }
             .orderBy(Slots.slotDate to SortOrder.ASC, Slots.startTime to SortOrder.ASC)
             .map { row ->
@@ -106,6 +107,40 @@ class BookingService(private val database: Database) {
             }
     }
 
+    suspend fun getSlotBookings(slotIdStr: String, trainerId: UUID): List<SlotBookingEntryResponse> {
+        val slotId = try {
+            UUID.fromString(slotIdStr)
+        } catch (_: Exception) {
+            throw BadRequestException("Invalid slotId")
+        }
+        return dbQuery(database) {
+            val slotExists = Slots
+                .join(WeekTemplates, JoinType.INNER, Slots.weekTemplateId, WeekTemplates.id)
+                .selectAll()
+                .where { (Slots.id eq slotId) and (WeekTemplates.trainerId eq trainerId) }
+                .count() > 0
+            if (!slotExists) throw NotFoundException("Slot not found")
+
+            Bookings
+                .join(Students, JoinType.INNER, Bookings.studentId, Students.id)
+                .selectAll()
+                .where {
+                    (Bookings.slotId eq slotId) and
+                            (Bookings.status eq BookingStatus.CONFIRMED)
+                }
+                .map {
+                    SlotBookingEntryResponse(
+                        bookingId = it[Bookings.id].toString(),
+                        studentId = it[Students.id].toString(),
+                        studentName = it[Students.name],
+                        telegramId = it[Students.telegramId],
+                        status = it[Bookings.status].name,
+                        createdAt = it[Bookings.createdAt].toString()
+                    )
+                }
+        }
+    }
+
     suspend fun cancel(bookingId: UUID, studentId: UUID, trainerId: UUID) {
         dbQuery(database) {
             val booking = Bookings
@@ -114,9 +149,9 @@ class BookingService(private val database: Database) {
                 .selectAll()
                 .where {
                     (Bookings.id eq bookingId) and
-                    (Bookings.studentId eq studentId) and
-                    (Bookings.status eq BookingStatus.CONFIRMED) and
-                    (WeekTemplates.trainerId eq trainerId)
+                            (Bookings.studentId eq studentId) and
+                            (Bookings.status eq BookingStatus.CONFIRMED) and
+                            (WeekTemplates.trainerId eq trainerId)
                 }
                 .singleOrNull() ?: throw NotFoundException("Booking not found")
 

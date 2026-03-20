@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: to-ubuntu
 
 on:
   push:
@@ -61,6 +61,8 @@ jobs:
           echo "DB_USER=${{ secrets.DB_USER }}" >> .env
           echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
           echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> .env
+          echo "BOT_WEBHOOK_URL=${{ secrets.BOT_WEBHOOK_URL }}" >> .env
+          echo "BOT_WEBHOOK_SECRET=${{ secrets.BOT_WEBHOOK_SECRET }}" >> .env
 
       - name: copy files to host
         uses: appleboy/scp-action@v0.1.7

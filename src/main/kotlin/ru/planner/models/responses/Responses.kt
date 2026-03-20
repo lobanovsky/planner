@@ -87,6 +87,16 @@ data class WeekScheduleResponse(
 )
 
 @Serializable
+data class SlotBookingEntryResponse(
+    val bookingId: String,
+    val studentId: String,
+    val studentName: String,
+    val telegramId: Long?,
+    val status: String,
+    val createdAt: String
+)
+
+@Serializable
 data class BookingResponse(
     val id: String,
     val slotId: String,

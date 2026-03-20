@@ -11,6 +11,13 @@ import ru.planner.security.StudentPrincipal
 import java.util.*
 
 fun Route.bookingRoutes(bookingService: BookingService) {
+    authenticate("trainer-jwt") {
+        get("/slots/{id}/bookings") {
+            val trainerId = call.trainerId()
+            val slotId = call.parameters["id"]!!
+            call.respond(bookingService.getSlotBookings(slotId, trainerId))
+        }
+    }
     authenticate("student-token") {
         route("/bookings") {
             post {
